@@ -174,24 +174,8 @@ async def connect_to_websocket():
     print("✅ Connexion à la WebSocket réussie!\n⏳ Récupération des données...")
     return websocket
 
+
 async def fetch_transaction_details(websocket, transaction_id, token, message_id):
-    """
-    Récupère les détails d'une transaction spécifique via WebSocket.
-
-    Cette fonction envoie une requête WebSocket pour récupérer les informations détaillées d'une transaction
-    spécifique en utilisant son `transaction_id`. Elle récupère ensuite une réponse et extrait les informations
-    demandées, notamment les éléments de la section "Transaction". Si une erreur ou un délai se produit, un message
-    d'avertissement est imprimé. La fonction retourne un dictionnaire contenant les informations extraites de la transaction.
-
-    :param websocket: L'objet WebSocket déjà connecté à l'API de TradeRepublic.
-    :param transaction_id: L'identifiant unique de la transaction pour laquelle les détails doivent être récupérés.
-    :param token: Le token de session utilisé pour l'authentification.
-    :param message_id: L'identifiant du message qui est incrémenté à chaque requête pour éviter les conflits dans les abonnements.
-
-    :return: Un tuple contenant deux éléments :
-        - `transaction_data`: Un dictionnaire avec les informations extraites de la transaction.
-        - `message_id`: L'ID du message incrémenté après chaque requête pour gérer l'abonnement/désabonnement.
-    """
     payload = {"type": "timelineDetailV2", "id": transaction_id, "token": token}
     message_id += 1
     await websocket.send(f"sub {message_id} {json.dumps(payload)}")
@@ -201,23 +185,35 @@ async def fetch_transaction_details(websocket, transaction_id, token, message_id
 
     start_index = response.find("{")
     end_index = response.rfind("}")
-    response_data = json.loads(
-        response[start_index : end_index + 1]
-        if start_index != -1 and end_index != -1
-        else "{}"
-    )
+    data = json.loads(response[start_index: end_index + 1] if start_index != -1 else "{}")
 
-    transaction_data = {}
+    details = {"isin": None, "synthèse": {}}
 
-    for section in response_data.get("sections", []):
-        if section.get("title") == "Transaction":
+    for section in data.get("sections", []):
+        if section.get("type") == "header" and "action" in section:
+            details["isin"] = section["action"].get("payload")
+
+        if section.get("title") == "Synthèse":
             for item in section.get("data", []):
-                header = item.get("title")
-                value = item.get("detail", {}).get("text")
-                if header and value:
-                    transaction_data[header] = value
+                h = item.get("title")
+                t = item.get("detail", {}).get("text")
+                if h and t:
+                    details["synthèse"][h] = t
 
-    return transaction_data, message_id
+                    # On descend pour Actions / Prix du titre
+                    if h == "Transaction" and "action" in item.get("detail", {}):
+                        # On utilise .get() partout pour éviter les "KeyError"
+                        sub_payload = item["detail"]["action"].get("payload", {})
+                        for sub_sec in sub_payload.get("sections", []):
+                            for sub_item in sub_sec.get("data", []):
+                                sub_h = sub_item.get("title")
+                                # CORRECTION ICI : on sécurise l'accès au texte
+                                sub_t = sub_item.get("detail", {}).get("text")
+
+                                if sub_h and sub_t:
+                                    details["synthèse"][sub_h] = sub_t
+
+    return details, message_id
 
 async def fetch_all_transactions(token, extract_details):
     """
@@ -263,14 +259,64 @@ async def fetch_all_transactions(token, extract_details):
                 break
 
             if extract_details:
-                for transaction in data["items"]:
+                for transaction in data.get("items", []):
+                    # FILTRE : On ignore ce qui n'a pas de montant ou les titres de bienvenue
+                    if transaction.get("eventType") not in ["TRADING_TRADE_EXECUTED", "SAVINGS_PLAN_EXECUTED"]:
+                        continue
+
                     transaction_id = transaction.get("id")
-                    if transaction_id:
-                        details, message_id = await fetch_transaction_details(
-                            websocket, transaction_id, token, message_id
-                        )
-                        transaction.update(details)
-                    all_data.append(transaction)
+                    details, message_id = await fetch_transaction_details(websocket, transaction_id, token, message_id)
+
+                    # Vérification : Si pas de ligne "Transaction" dans la synthèse, on ignore
+                    synth = details.get("synthèse", {})
+                    if "Transaction" not in synth:
+                        continue
+
+                    try:
+                        # On récupère la ligne : "0,000419 × 59 539,96 €"
+                        parts = synth["Transaction"].split("×")
+
+                        # Nettoyage de la Quantité
+                        raw_qty = parts[0].strip().replace(",", ".")
+                        # On supprime TOUS les espaces (normaux et insécables)
+                        quantite = float("".join(raw_qty.split()))
+
+                        # Nettoyage du Prix Unitaire
+                        raw_prix = parts[1].strip().replace("€", "").replace(",", ".")
+                        # On supprime TOUS les espaces et les caractères bizarres
+                        prix_u = float("".join(raw_prix.split()))
+
+                    except Exception as e:
+                        print(f"⚠️ Erreur de parsing sur {transaction.get('title')}: {e}")
+                        quantite, prix_u = None, None
+
+                    frais_raw = synth.get("Frais", "0")
+                    frais_clean = 0.0
+                    if isinstance(frais_raw, str):
+                        if "gratuit" in frais_raw.lower() or frais_raw.strip() == "" or frais_raw.strip() == "0":
+                            frais_clean = 0.0
+                        else:
+                            try:
+                                # Nettoyage pour transformer "1,00 €" en 1.0
+                                frais_clean = float(
+                                    frais_raw.replace("€", "").replace(",", ".").replace("\xa0", "").replace(" ",
+                                                                                                             "").strip())
+                            except:
+                                frais_clean = 0.0
+
+                    # CONSTRUCTION DU JSON ESSENTIEL
+                    clean_entry = {
+                        "Id": transaction.get("id"),
+                        "Type": "Achat" if transaction.get("subtitle") == "Ordre d'achat" else "Vente" ,  # Achat / Vente
+                        "Actif": transaction.get("title"),
+                        "ISIN": details.get("isin"),
+                        "Prix_Unitaire": prix_u,
+                        "Quantite": quantite,
+                        "Frais": frais_clean,
+                        "Total": abs(float(transaction.get("amount", {}).get("value", 0)))
+                    }
+
+                    all_data.append(clean_entry)
             else:
                 all_data.extend(data["items"])
 
@@ -278,20 +324,14 @@ async def fetch_all_transactions(token, extract_details):
             if not after_cursor:
                 break
 
-    if output_format.lower() == "json":
-        output_path = os.path.join(output_folder, "trade_republic_transactions.json")
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(all_data, f, indent=4, ensure_ascii=False)
-        print("✅ Données sauvegardées dans 'trade_republic_transactions.json'")
-    else:
-        flattened_data = flatten_and_clean_json(all_data)
-        if flattened_data:
-            df = pd.DataFrame(flattened_data)
-            df = df.dropna(axis=1, how="all")
-            df = transform_data_types(df)
-            output_path = os.path.join(output_folder, "trade_republic_transactions.csv")
-            df.to_csv(output_path, index=False, sep=";", encoding="utf-8-sig")
-            print("✅ Données sauvegardées dans 'trade_republic_transactions.csv'")
+    # if output_format.lower() == "json":
+    #     output_path = os.path.join(output_folder, "transactions.json")
+    #     with open(output_path, "w", encoding="utf-8") as f:
+    #         json.dump(all_data, f, indent=4, ensure_ascii=False)
+    #     print("✅ Données sauvegardées dans 'out/transactions.json'")
+
+    return json.dumps(all_data, indent=4, ensure_ascii=False)
+
 
 async def profile_cash(token):
     """
