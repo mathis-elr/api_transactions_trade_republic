@@ -102,18 +102,28 @@ def generate_device_info():
     }
     return base64.b64encode(json.dumps(device_info).encode()).decode()
 
+
 def get_waf_token_with_selenium():
-    """Utilise Selenium en mode Headless pour obtenir le token AWS WAF silencieusement."""
-    print("🤖 Veuillez patienter, Selenium gère le navigateur en arrière-plan...")
-    
     options = Options()
     options.add_argument("--headless=new")
-    
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+
+    # Force l'utilisation d'un User-Agent réaliste (très important pour le WAF sur Linux)
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    # Indique à Selenium où se trouve le binaire Chrome installé par dpkg
+    options.binary_location = "/usr/bin/google-chrome"
+
     try:
-        # Selenium 4 gère automatiquement le téléchargement du driver et du navigateur ici
+        # On laisse Selenium Manager trouver le driver tout seul,
+        # mais on lui passe les options configurées pour Linux
         driver = webdriver.Chrome(options=options)
-        
-        # Masquer encore plus le fait que ce soit un robot via CDP
+
+        # --- RESTE DU CODE (Masquage bot) ---
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
                 Object.defineProperty(navigator, 'webdriver', {
@@ -121,37 +131,22 @@ def get_waf_token_with_selenium():
                 })
             """
         })
-        
+
+        print("🌐 Navigation vers Trade Republic pour le token WAF...")
         driver.get("https://app.traderepublic.com/")
-        # 5 secondes pour laisser le temps au WAF de se déclencher et de déposer le cookie
-        time.sleep(5)
-        
+        time.sleep(7)  # Un peu plus de temps sur serveur car c'est souvent plus lent
+
         waf_token = None
-        
-        # Récupération via les cookies (Méthode principale)
         for cookie in driver.get_cookies():
             if "aws-waf-token" in cookie.get("name", ""):
                 waf_token = cookie["value"]
                 break
-                
-        # Récupération via l'API Javascript (Fallback si le cookie est caché)
-        if not waf_token:
-            try:
-                waf_token = driver.execute_script("return window.AWSWafIntegration && window.AWSWafIntegration.getToken();")
-            except:
-                pass
-                
+
         driver.quit()
-        
-        if waf_token:
-            print("✅ Token de sécurité WAF récupéré avec succès !")
-            return waf_token
-        else:
-            print("⚠️ Impossible d'obtenir le token de sécurité automatiquement.")
-            return ""
-            
+        return waf_token
+
     except Exception as e:
-        print(f"❌ Erreur lors de l'automatisation Selenium : {e}")
+        print(f"❌ Erreur Selenium sur Oracle : {e}")
         return ""
 
 async def connect_to_websocket():
@@ -307,10 +302,11 @@ async def fetch_all_transactions(token, extract_details):
                     # CONSTRUCTION DU JSON ESSENTIEL
                     clean_entry = {
                         "Id": transaction.get("id"),
+                        "Date": transaction.get("timestamp"),
                         "Type": "Achat" if transaction.get("subtitle") == "Ordre d'achat" else "Vente" ,  # Achat / Vente
                         "Actif": transaction.get("title"),
                         "ISIN": details.get("isin"),
-                        "Prix_Unitaire": prix_u,
+                        "Prix": prix_u,
                         "Quantite": quantite,
                         "Frais": frais_clean,
                         "Total": abs(float(transaction.get("amount", {}).get("value", 0)))
