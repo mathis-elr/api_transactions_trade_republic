@@ -28,7 +28,8 @@ state = {
 def check_auth():
     key = request.headers.get('X-API-KEY')
     if key != API_KEY:
-        abort(401)
+        return False
+    return True
 
 
 def connexion(phone, pin, headers_to_use):
@@ -48,7 +49,7 @@ def run_configuration_logic():
         phone_number = config.get("secret", "phone_number")
         pin = config.get("secret", "pin")
     except (configparser.NoSectionError, configparser.NoOptionError):
-        return None, "Erreur : phone_number ou pin manquants dans config.ini"
+        return None, "Information manquante pour la connexion (téléphone ou pin)."
 
     state["extract_details"] = config.getboolean("general", "extract_details", fallback=False)
 
@@ -73,30 +74,38 @@ def run_configuration_logic():
 
     if response.status_code != 200:
         print(f"Erreur TR ({response.status_code}): {response.text}")
-        return None, f"Erreur TR ({response.status_code}): {response.text}"
+        return None, "Connexion refusée par Trade République, verifier les identifiants ou ressayer plus tard."
 
     return response.json(), None
 
 
 @app.route('/auth/request-sms', methods=['POST'])
 def demande_code_sms():
+    cleApiOk = check_auth()
+    if not cleApiOk:
+        return jsonify({"message" : "Accès au site refusé."}), 401
+
     login_data, error = run_configuration_logic()
 
     if error:
-        return jsonify({"error": error}), 400
+        return jsonify({"message": error}), 400
 
     state["process_id"] = login_data.get("processId")
 
     return jsonify({
-        "status": "sms_sent",
+        "message": "Sms envoyé avec succès, consulter votre application.",
         "countdown": login_data.get("countdownInSeconds")
     })
 
 
 @app.route('/auth/confirm-sms', methods=['POST'])
 def reception_code_sms():
+    cleApiOk = check_auth()
+    if not cleApiOk:
+        return jsonify({"message" : "Accès au site refusé."}), 401
+
     if not state["process_id"]:
-        return jsonify({"error": "Aucune session en cours. Appelez request-sms d'abord."}), 400
+        return jsonify({"message": "Aucune session en cours. Appelez request-sms d'abord."}), 400
 
     data = request.json
     # On s'assure que le code est bien une string
@@ -112,27 +121,31 @@ def reception_code_sms():
 
     if resp.status_code != 200:
         print(f"❌ Échec confirmation : {resp.text}")
-        return jsonify({"error": "Code invalide ou session expirée", "details": resp.text}), 400
+        return jsonify({"message": "Code invalide ou session expirée"}), 400
 
     # Extraction du token de session final
     res_headers = headers_to_dict(resp)
     state["session_token"] = res_headers.get("Set-Cookie", {}).get("tr_session")
 
     print("✅ Authentification réussie, session stockée.")
-    return jsonify({"status": "success", "session_ready": True})
+    return jsonify({"message": "Authentification réussite"})
 
 
 @app.route('/transactions', methods=['GET'])
 def get_transactions():
+    cleApiOk = check_auth()
+    if not cleApiOk:
+        return jsonify({"message" : "Accès au site refusé."}), 401
+
     if not state["session_token"]:
-        return jsonify({"error": "Non authentifié. Appelez confirm-sms d'abord."}), 401
+        return jsonify({"message": "Non authentifié. Appelez confirm-sms d'abord."}), 401
 
     try:
         # Exécution du scraper
         all_data = asyncio.run(fetch_all_transactions(state["session_token"], state["extract_details"]))
         return jsonify(all_data)
     except Exception as e:
-        return jsonify({"error": f"Erreur lors de l'extraction : {str(e)}"}), 500
+        return jsonify({"message": "Erreur lors de la récupération des transactions"}), 500
 
 
 if __name__ == '__main__':
