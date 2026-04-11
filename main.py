@@ -226,7 +226,8 @@ async def fetch_all_transactions(token, extract_details):
                     Si `True`, chaque transaction sera enrichie de données supplémentaires ; sinon, seules les transactions de base seront récupérées.
     :return: Elle sauvegarde les données récupérées dans un fichier (soit JSON, soit CSV) dans le dossier spécifié.
     """
-    all_data = []
+    investissements = []
+    flux_bancaires = []
     message_id = 0
 
     async with await connect_to_websocket() as websocket:
@@ -255,78 +256,85 @@ async def fetch_all_transactions(token, extract_details):
 
             if extract_details:
                 for transaction in data.get("items", []):
-                    # FILTRE : On ignore ce qui n'a pas de montant ou les titres de bienvenue
-                    if transaction.get("eventType") not in ["TRADING_TRADE_EXECUTED", "SAVINGS_PLAN_EXECUTED"]:
-                        continue
 
-                    transaction_id = transaction.get("id")
-                    details, message_id = await fetch_transaction_details(websocket, transaction_id, token, message_id)
+                    event = transaction.get("eventType")
+                    if event in ["TRADING_TRADE_EXECUTED", "TRADING_SAVINGSPLAN_EXECUTED", "PEA_SAVINGS_PLAN_PAY_IN", "PEA_DEPOSIT_DEBIT"]:
 
-                    # Vérification : Si pas de ligne "Transaction" dans la synthèse, on ignore
-                    synth = details.get("synthèse", {})
-                    if "Transaction" not in synth:
-                        continue
+                        transaction_id = transaction.get("id")
+                        details, message_id = await fetch_transaction_details(websocket, transaction_id, token, message_id)
 
-                    try:
-                        # On récupère la ligne : "0,000419 × 59 539,96 €"
-                        parts = synth["Transaction"].split("×")
+                        # Vérification : Si pas de ligne "Transaction" dans la synthèse, on ignore
+                        synth = details.get("synthèse", {})
+                        if "Transaction" not in synth:
+                            continue
 
-                        # Nettoyage de la Quantité
-                        raw_qty = parts[0].strip().replace(",", ".")
-                        # On supprime TOUS les espaces (normaux et insécables)
-                        quantite = float("".join(raw_qty.split()))
+                        try:
+                            # On récupère la ligne : "0,000419 × 59 539,96 €"
+                            parts = synth["Transaction"].split("×")
 
-                        # Nettoyage du Prix Unitaire
-                        raw_prix = parts[1].strip().replace("€", "").replace(",", ".")
-                        # On supprime TOUS les espaces et les caractères bizarres
-                        prix_u = float("".join(raw_prix.split()))
+                            # Nettoyage de la Quantité
+                            raw_qty = parts[0].strip().replace(",", ".")
+                            # On supprime TOUS les espaces (normaux et insécables)
+                            quantite = float("".join(raw_qty.split()))
 
-                    except Exception as e:
-                        print(f"⚠️ Erreur de parsing sur {transaction.get('title')}: {e}")
-                        quantite, prix_u = None, None
+                            # Nettoyage du Prix Unitaire
+                            raw_prix = parts[1].strip().replace("€", "").replace(",", ".")
+                            # On supprime TOUS les espaces et les caractères bizarres
+                            prix_u = float("".join(raw_prix.split()))
 
-                    frais_raw = synth.get("Frais", "0")
-                    frais_clean = 0.0
-                    if isinstance(frais_raw, str):
-                        if "gratuit" in frais_raw.lower() or frais_raw.strip() == "" or frais_raw.strip() == "0":
-                            frais_clean = 0.0
-                        else:
-                            try:
-                                # Nettoyage pour transformer "1,00 €" en 1.0
-                                frais_clean = float(
-                                    frais_raw.replace("€", "").replace(",", ".").replace("\xa0", "").replace(" ",
-                                                                                                             "").strip())
-                            except:
+                        except Exception as e:
+                            print(f"⚠️ Erreur de parsing sur {transaction.get('title')}: {e}")
+                            quantite, prix_u = None, None
+
+                        frais_raw = synth.get("Frais", "0")
+                        frais_clean = 0.0
+                        if isinstance(frais_raw, str):
+                            if "gratuit" in frais_raw.lower() or frais_raw.strip() == "" or frais_raw.strip() == "0":
                                 frais_clean = 0.0
+                            else:
+                                try:
+                                    # Nettoyage pour transformer "1,00 €" en 1.0
+                                    frais_clean = float(
+                                        frais_raw.replace("€", "").replace(",", ".").replace("\xa0", "").replace(" ",
+                                                                                                                 "").strip())
+                                except:
+                                    frais_clean = 0.0
 
-                    # CONSTRUCTION DU JSON ESSENTIEL
-                    clean_entry = {
-                        "Id": transaction.get("id"),
-                        "Date": transaction.get("timestamp"),
-                        "Type": "Achat" if transaction.get("subtitle") == "Ordre d'achat" else "Vente" ,  # Achat / Vente
-                        "Actif": transaction.get("title"),
-                        "ISIN": details.get("isin"),
-                        "Prix": prix_u,
-                        "Quantite": quantite,
-                        "Frais": frais_clean,
-                        "Total": abs(float(transaction.get("amount", {}).get("value", 0)))
-                    }
+                        # CONSTRUCTION DU JSON ESSENTIEL
+                        clean_entry = {
+                            "Id": transaction.get("id"),
+                            "Date": transaction.get("timestamp").parse("+0000", "Z"),
+                            "Type": "Achat" if transaction.get("subtitle") == "Ordre d'achat" else "Vente" ,  # Achat / Vente
+                            "Actif": transaction.get("title"),
+                            "ISIN": details.get("isin"),
+                            "Prix": prix_u,
+                            "Quantite": quantite,
+                            "Frais": frais_clean,
+                            "Total": abs(float(transaction.get("amount", {}).get("value", 0)))
+                        }
 
-                    all_data.append(clean_entry)
+                        investissements.append(clean_entry)
+
+                    elif event in ["BANK_TRANSACTION_INCOMING", "BANK_TRANSACTION_OUTGOING"]:
+                        valeur_raw = transaction.get("amount", {}).get("value", 0)
+                        flux_bancaires.append({
+                            "Id": transaction.get("id"),
+                            "Date": transaction.get("timestamp").replace("+0000", "Z"),
+                            "Type": "Entrant" if valeur_raw > 0 else "Sortant",
+                            "Expediteur": transaction.get("title"),
+                            "Montant": abs(float(valeur_raw))
+                        })
             else:
-                all_data.extend(data["items"])
+                investissements.extend(data["items"])
 
             after_cursor = data.get("cursors", {}).get("after")
             if not after_cursor:
                 break
 
-    # if output_format.lower() == "json":
-    #     output_path = os.path.join(output_folder, "transactions.json")
-    #     with open(output_path, "w", encoding="utf-8") as f:
-    #         json.dump(all_data, f, indent=4, ensure_ascii=False)
-    #     print("✅ Données sauvegardées dans 'out/transactions.json'")
-
-    return json.dumps(all_data, indent=4, ensure_ascii=False)
+    return {
+        "transactions": investissements,
+        "fluxBancaires": flux_bancaires
+    }
 
 
 async def profile_cash(token):

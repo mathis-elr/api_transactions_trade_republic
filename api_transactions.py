@@ -131,8 +131,8 @@ def reception_code_sms():
     return jsonify({"message": "Authentification réussite"})
 
 
-@app.route('/transactions', methods=['GET'])
-def get_transactions():
+@app.route('/datas', methods=['GET'])
+def get_data():
     cleApiOk = check_auth()
     if not cleApiOk:
         return jsonify({"message" : "Accès au site refusé."}), 401
@@ -143,6 +143,7 @@ def get_transactions():
     try:
         # Exécution du scraper
         all_data = asyncio.run(fetch_all_transactions(state["session_token"], state["extract_details"]))
+
         return jsonify(all_data)
     except Exception as e:
         return jsonify({"message": "Erreur lors de la récupération des transactions"}), 500
