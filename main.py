@@ -288,7 +288,7 @@ async def fetch_all_transactions(token, extract_details, dernier_id_enregistre=N
                         clean_entry = {
                             "Id": id_courant,
                             "Date": transaction.get("timestamp").replace("+0000", "Z"),
-                            "Type": "Vente" if transaction.get("subtitle") == "Ordre de vente" else "Achat" ,  # Achat / Vente
+                            "Type": 0 if transaction.get("subtitle") == "Ordre de vente" else 1,
                             "Actif": transaction.get("title"),
                             "ISIN": details.get("isin"),
                             "Prix": prix_u,
