@@ -146,6 +146,7 @@ def get_data():
 
         return jsonify(all_data)
     except Exception as e:
+        print(f"Erreur lors de la récupération des transactions : {str(e)}")
         return jsonify({"message": "Erreur lors de la récupération des transactions"}), 500
 
 

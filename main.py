@@ -303,8 +303,8 @@ async def fetch_all_transactions(token, extract_details):
                         # CONSTRUCTION DU JSON ESSENTIEL
                         clean_entry = {
                             "Id": transaction.get("id"),
-                            "Date": transaction.get("timestamp").parse("+0000", "Z"),
-                            "Type": "Achat" if transaction.get("subtitle") == "Ordre d'achat" else "Vente" ,  # Achat / Vente
+                            "Date": transaction.get("timestamp").replace("+0000", "Z"),
+                            "Type": "Vente" if transaction.get("subtitle") == "Ordre de vente" else "Achat" ,  # Achat / Vente
                             "Actif": transaction.get("title"),
                             "ISIN": details.get("isin"),
                             "Prix": prix_u,
@@ -332,8 +332,8 @@ async def fetch_all_transactions(token, extract_details):
                 break
 
     return {
-        "transactions": investissements,
-        "fluxBancaires": flux_bancaires
+        "Transactions": investissements,
+        "FluxBancaires": flux_bancaires
     }
 
 
