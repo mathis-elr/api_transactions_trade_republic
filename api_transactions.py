@@ -14,7 +14,7 @@ from main import (
 
 app = Flask(__name__)
 
-API_KEY = "entrez_une_clee_api_secrète"
+API_KEY = "clee_api"
 
 # Un seul endroit pour tout stocker entre les requêtes
 state = {
@@ -24,13 +24,11 @@ state = {
     "extract_details": False
 }
 
-
 def check_auth():
     key = request.headers.get('X-API-KEY')
     if key != API_KEY:
         return False
     return True
-
 
 def connexion(phone, pin, headers_to_use):
     print(f"📡 Tentative de connexion pour le numéro : {phone}")
@@ -42,21 +40,16 @@ def connexion(phone, pin, headers_to_use):
 
 
 def run_configuration_logic():
-    config = configparser.ConfigParser()
-    config.read("config.ini")
+    phone_number = request.headers.get('num-tel')
+    pin = request.headers.get('pin')
 
-    try:
-        phone_number = config.get("secret", "phone_number")
-        pin = config.get("secret", "pin")
-    except (configparser.NoSectionError, configparser.NoOptionError):
-        return None, "Information manquante pour la connexion (téléphone ou pin)."
+    if not phone_number or not pin:
+        return None, "Numero de telephone ou pin manquant."
 
-    state["extract_details"] = config.getboolean("general", "extract_details", fallback=False)
+    state["extract_details"] = True
 
     # Récupération du WAF
-    waf_token = config.get("secret", "waf_token", fallback="")
-    if not waf_token:
-        waf_token = get_waf_token_with_selenium()
+    waf_token = get_waf_token_with_selenium()
 
     # Construction des headers dans le state
     state["headers"] = {
@@ -137,12 +130,18 @@ def get_data():
     if not cleApiOk:
         return jsonify({"message" : "Accès au site refusé."}), 401
 
+    dernier_id_enregistre = request.headers.get('dernier-id-enregistre')
+
     if not state["session_token"]:
         return jsonify({"message": "Non authentifié. Appelez confirm-sms d'abord."}), 401
 
     try:
         # Exécution du scraper
-        all_data = asyncio.run(fetch_all_transactions(state["session_token"], state["extract_details"]))
+        all_data = asyncio.run(fetch_all_transactions(
+            state["session_token"],
+            state["extract_details"],
+            dernier_id_enregistre)
+        )
 
         return jsonify(all_data)
     except Exception as e:
