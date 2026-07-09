@@ -1,17 +1,10 @@
 import os
 import json
-import asyncio
-import configparser
 import websockets
 import requests
-import pandas as pd
 import hashlib
 import uuid
 import base64
-import time
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from datetime import datetime
 
 def headers_to_dict(response):
     """
@@ -32,69 +25,6 @@ def headers_to_dict(response):
         extracted_headers[header] = parsed_dict if parsed_dict else header_value
     return extracted_headers
 
-def flatten_and_clean_json(all_data, sep="."):
-    """
-    Aplatit des données JSON imbriquées et préserve l'ordre des colonnes.
-
-    :param all_data: Liste de dictionnaires JSON à aplatir.
-    :param sep: Séparateur utilisé pour les clés aplaties.
-    :return: Liste de dictionnaires aplatis et nettoyés.
-    """
-    all_keys = []  # Utilisé pour conserver l'ordre des colonnes
-    flattened_data = []
-
-    def flatten(nested_json, parent_key=""):
-        """Aplatit récursivement un JSON imbriqué."""
-        flat_dict = {}
-        for key, value in nested_json.items():
-            new_key = f"{parent_key}{sep}{key}" if parent_key else key
-            if isinstance(value, dict):
-                flat_dict.update(flatten(value, new_key))
-            else:
-                flat_dict[new_key] = value
-
-            if new_key not in all_keys:
-                all_keys.append(new_key)
-
-        return flat_dict
-
-    for item in all_data:
-        flat_item = flatten(item)
-        flattened_data.append(flat_item)
-
-    complete_data = [
-        {key: item.get(key, None) for key in all_keys} for item in flattened_data
-    ]
-    return complete_data
-
-def transform_data_types(df):
-    """
-    Transforme les types de données d'un DataFrame Pandas :
-    - Convertit les colonnes de type timestamp en format date français.
-    - Formate les montants en valeurs numériques avec séparateur français.
-
-    :param df: DataFrame contenant les données.
-    :return: DataFrame transformé.
-    """
-    timestamp_columns = ["timestamp"]
-    for col in timestamp_columns:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%d/%m/%Y")
-
-    amount_columns = [
-        "amount.value",
-        "amount.fractionDigits",
-        "subAmount.value",
-        "subAmount.fractionDigits",
-    ]
-    for col in amount_columns:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-            df[col] = df[col].apply(
-                lambda x: str(x).replace(".", ",") if pd.notna(x) else x
-            )
-    return df
-
 def generate_device_info():
     """Génère dynamiquement un Device Info cohérent au format Base64"""
     device_id = hashlib.sha512(uuid.uuid4().bytes).hexdigest()
@@ -104,51 +34,31 @@ def generate_device_info():
     return base64.b64encode(json.dumps(device_info).encode()).decode()
 
 
-def get_waf_token_with_selenium():
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
+def get_waf_token_via_api():
+    # Remplace par ta vraie clé API ScrapingBee (ou ZenRows)
+    SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY")
+    TARGET_URL = "https://app.traderepublic.com/"
 
-    # Force l'utilisation d'un User-Agent réaliste (très important pour le WAF sur Linux)
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-    # chemin chrome pour l'instance oracle
-    #options.binary_location = "/usr/bin/google-chrome"
+    # Appel à l'API distante au lieu de lancer un navigateur local
+    api_url = f"https://app.scrapingbee.com/api/v1/?api_key={SCRAPINGBEE_API_KEY}&url={TARGET_URL}&render_js=true"
 
     try:
-        # On laisse Selenium Manager trouver le driver tout seul,
-        # mais on lui passe les options configurées pour Linux
-        driver = webdriver.Chrome(options=options)
+        response = requests.get(api_url)
+        # ScrapingBee renvoie les cookies dans les headers ou dans le JSON
+        cookies = response.cookies
+        waf_token = cookies.get("aws-waf-token")
 
-        # --- RESTE DU CODE (Masquage bot) ---
-        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                })
-            """
-        })
-
-        print("🌐 Navigation vers Trade Republic pour le token WAF...")
-        driver.get("https://app.traderepublic.com/")
-        time.sleep(7)  # Un peu plus de temps sur serveur car c'est souvent plus lent
-
-        waf_token = None
-        for cookie in driver.get_cookies():
-            if "aws-waf-token" in cookie.get("name", ""):
-                waf_token = cookie["value"]
-                break
-
-        driver.quit()
-        return waf_token
+        if waf_token:
+            print("✅ Token WAF récupéré via API !")
+            return waf_token
+        else:
+            print("❌ Token non trouvé dans la réponse API.")
+            return ""
 
     except Exception as e:
-        print(f"❌ Erreur Selenium sur Oracle : {e}")
+        print(f"❌ Erreur API ScrapingBee: {e}")
         return ""
+
 
 async def connect_to_websocket():
     """

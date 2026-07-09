@@ -1,15 +1,14 @@
 import asyncio
 import os
 import requests
-import configparser
-from flask import Flask, request, abort, jsonify
+from flask import Flask, request, jsonify
 
 # Import des fonctions de ton main.py
 from main import (
     generate_device_info,
-    get_waf_token_with_selenium,
     headers_to_dict,
-    fetch_all_transactions
+    fetch_all_transactions,
+    get_waf_token_via_api
 )
 
 app = Flask(__name__)
@@ -49,7 +48,7 @@ def run_configuration_logic():
     state["extract_details"] = True
 
     # Récupération du WAF
-    waf_token = get_waf_token_with_selenium()
+    waf_token = get_waf_token_via_api()
 
     # Construction des headers dans le state
     state["headers"] = {
