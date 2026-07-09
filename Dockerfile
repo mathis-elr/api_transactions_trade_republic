@@ -18,4 +18,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 5. On utilise Gunicorn (serveur web de production) au lieu de l'outil de debug Flask
-CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT:-5000} api_transactions:app"]
+CMD ["sh", "-c", "gunicorn --timeout 120 -b 0.0.0.0:${PORT:-5000} api_transaction:app"]
