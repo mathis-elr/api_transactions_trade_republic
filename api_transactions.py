@@ -39,8 +39,9 @@ def connexion(phone, pin, headers_to_use):
 
 
 def run_configuration_logic():
-    phone_number = request.headers.get('num-tel')
-    pin = request.headers.get('pin')
+    data = request.get_json()
+    phone_number = data.get('num-tel')
+    pin = data.get('pin')
 
     if not phone_number or not pin:
         return None, "Numero de telephone ou pin manquant."
