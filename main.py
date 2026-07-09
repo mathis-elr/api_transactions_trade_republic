@@ -44,12 +44,18 @@ def get_waf_token_with_selenium():
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
 
-    # Force l'utilisation d'un User-Agent réaliste (très important pour le WAF sur Linux)
+    # --- OPTIONS RÉGIME SEC (Spécial Serveur 512Mo RAM) ---
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--blink-settings=imagesEnabled=false") # On ne charge AUCUNE image
+    # ------------------------------------------------------
+
+    # Force l'utilisation d'un User-Agent réaliste
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-    # chemin chrome pour l'instance oracle
-    options.binary_location = "/usr/bin/google-chrome"
+    # L'emplacement de Chrome installé via Docker
+    options.binary_location = "/usr/bin/chromium"
 
     try:
         # On laisse Selenium Manager trouver le driver tout seul,
