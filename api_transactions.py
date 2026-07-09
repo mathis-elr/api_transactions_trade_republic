@@ -8,7 +8,7 @@ from main import (
     generate_device_info,
     headers_to_dict,
     fetch_all_transactions,
-    get_waf_token_via_api
+    get_waf_token_with_selenium
 )
 
 app = Flask(__name__)
@@ -39,8 +39,6 @@ def connexion(phone, pin, headers_to_use):
 
 
 def run_configuration_logic():
-    print(f"DEBUG: Headers reçus : {request.headers}")
-    print(f"DEBUG: Data reçue : {request.get_data()}")
 
     data = request.get_json()
     print(f"DEBUG: Data parsée : {data}")
@@ -57,7 +55,7 @@ def run_configuration_logic():
     state["extract_details"] = True
 
     # Récupération du WAF
-    waf_token = get_waf_token_via_api()
+    waf_token = get_waf_token_with_selenium
 
     # Construction des headers dans le state
     state["headers"] = {
