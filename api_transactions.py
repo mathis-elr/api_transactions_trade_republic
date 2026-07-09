@@ -14,7 +14,7 @@ from main import (
 
 app = Flask(__name__)
 
-API_KEY = "clee_api"
+API_KEY = os.getenv("API_KEY")
 
 # Un seul endroit pour tout stocker entre les requêtes
 state = {
