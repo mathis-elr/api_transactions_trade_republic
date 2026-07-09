@@ -1,17 +1,11 @@
-import os
 import json
-import asyncio
-import configparser
 import websockets
-import requests
-import pandas as pd
 import hashlib
 import uuid
 import base64
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from datetime import datetime
 
 def headers_to_dict(response):
     """
@@ -32,68 +26,6 @@ def headers_to_dict(response):
         extracted_headers[header] = parsed_dict if parsed_dict else header_value
     return extracted_headers
 
-def flatten_and_clean_json(all_data, sep="."):
-    """
-    Aplatit des données JSON imbriquées et préserve l'ordre des colonnes.
-
-    :param all_data: Liste de dictionnaires JSON à aplatir.
-    :param sep: Séparateur utilisé pour les clés aplaties.
-    :return: Liste de dictionnaires aplatis et nettoyés.
-    """
-    all_keys = []  # Utilisé pour conserver l'ordre des colonnes
-    flattened_data = []
-
-    def flatten(nested_json, parent_key=""):
-        """Aplatit récursivement un JSON imbriqué."""
-        flat_dict = {}
-        for key, value in nested_json.items():
-            new_key = f"{parent_key}{sep}{key}" if parent_key else key
-            if isinstance(value, dict):
-                flat_dict.update(flatten(value, new_key))
-            else:
-                flat_dict[new_key] = value
-
-            if new_key not in all_keys:
-                all_keys.append(new_key)
-
-        return flat_dict
-
-    for item in all_data:
-        flat_item = flatten(item)
-        flattened_data.append(flat_item)
-
-    complete_data = [
-        {key: item.get(key, None) for key in all_keys} for item in flattened_data
-    ]
-    return complete_data
-
-def transform_data_types(df):
-    """
-    Transforme les types de données d'un DataFrame Pandas :
-    - Convertit les colonnes de type timestamp en format date français.
-    - Formate les montants en valeurs numériques avec séparateur français.
-
-    :param df: DataFrame contenant les données.
-    :return: DataFrame transformé.
-    """
-    timestamp_columns = ["timestamp"]
-    for col in timestamp_columns:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce").dt.strftime("%d/%m/%Y")
-
-    amount_columns = [
-        "amount.value",
-        "amount.fractionDigits",
-        "subAmount.value",
-        "subAmount.fractionDigits",
-    ]
-    for col in amount_columns:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-            df[col] = df[col].apply(
-                lambda x: str(x).replace(".", ",") if pd.notna(x) else x
-            )
-    return df
 
 def generate_device_info():
     """Génère dynamiquement un Device Info cohérent au format Base64"""
@@ -117,7 +49,7 @@ def get_waf_token_with_selenium():
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     # chemin chrome pour l'instance oracle
-    #options.binary_location = "/usr/bin/google-chrome"
+    options.binary_location = "/usr/bin/google-chrome"
 
     try:
         # On laisse Selenium Manager trouver le driver tout seul,
