@@ -55,7 +55,7 @@ def run_configuration_logic():
     state["extract_details"] = True
 
     # Récupération du WAF
-    waf_token = get_waf_token_with_selenium
+    waf_token = get_waf_token_with_selenium()
 
     # Construction des headers dans le state
     state["headers"] = {
