@@ -72,8 +72,10 @@ def run_configuration_logic():
     response = connexion(phone_number, pin, state["headers"])
 
     if response.status_code != 200:
-        print(f"Erreur TR ({response.status_code}): {response.text}")
-        return None, "Connexion refusée par Trade République, verifier les identifiants ou ressayer plus tard."
+        # On renvoie la vraie erreur et l'état du token WAF pour comprendre !
+        token_status = "VIDE" if not waf_token else "RÉCUPÉRÉ"
+        debug_msg = f"Code TR: {response.status_code}. Message TR: {response.text}. Token: {token_status}"
+        return None, debug_msg
 
     return response.json(), None
 
