@@ -39,12 +39,20 @@ def connexion(phone, pin, headers_to_use):
 
 
 def run_configuration_logic():
+    print(f"DEBUG: Headers reçus : {request.headers}")
+    print(f"DEBUG: Data reçue : {request.get_data()}")
+
     data = request.get_json()
+    print(f"DEBUG: Data parsée : {data}")
+
+    if not data:
+        return None, "Le serveur n'a reçu aucun JSON !"
+
     phone_number = data.get('num-tel')
     pin = data.get('pin')
 
     if not phone_number or not pin:
-        return None, "Numero de telephone ou pin manquant."
+        return None, f"Numero ou pin manquant. Reçu : {data}"
 
     state["extract_details"] = True
 
