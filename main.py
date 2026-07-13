@@ -150,7 +150,9 @@ async def fetch_all_transactions(token, extract_details, dernier_id_enregistre=N
     investissements = []
     message_id = 0
 
-    async with await connect_to_websocket() as websocket:
+    websocket = await connect_to_websocket()
+
+    try:
         after_cursor = None
         while True:
             payload = {"type": "timelineTransactions", "token": token}
@@ -242,6 +244,9 @@ async def fetch_all_transactions(token, extract_details, dernier_id_enregistre=N
             after_cursor = data.get("cursors", {}).get("after")
             if not after_cursor:
                 break
+
+    finally:
+        await websocket.close()
 
     return {"Transactions": investissements}
 
