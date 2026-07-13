@@ -124,11 +124,15 @@ def reception_code_sms():
         print(f"❌ Échec confirmation : {resp.text}")
         return jsonify({"message": "Code invalide ou session expirée"}), 400
 
-    # Extraction du token de session final
-    res_headers = headers_to_dict(resp)
-    state["session_token"] = res_headers.get("Set-Cookie", {}).get("tr_session")
+    tr_session_cookie = resp.cookies.get("tr_session")
 
-    print("✅ Authentification réussie, session stockée.")
+    if not tr_session_cookie:
+        print("⚠️ Le cookie tr_session n'a pas été trouvé dans la réponse de TR !")
+        print(f"Cookies reçus : {resp.cookies.get_dict()}")
+
+    state["session_token"] = tr_session_cookie
+
+    print(f"✅ Authentification réussie, session stockée : {state['session_token']}")
     return jsonify({"message": "Authentification réussite"})
 
 
