@@ -124,6 +124,30 @@ async def fetch_transaction_details(websocket, transaction_id, token, message_id
     end_index = response.rfind("}")
     data = json.loads(response[start_index: end_index + 1] if start_index != -1 else "{}")
 
+    # --- AJOUT TEMPORAIRE : On cherche si cette transaction contient le sub_item qui plante ---
+    try:
+        for section in data.get("sections", []):
+            if section.get("title") == "Synthèse":
+                for item in section.get("data", []):
+                    if item.get("title") == "Transaction" and "action" in item.get("detail", {}):
+                        sub_payload = item["detail"]["action"].get("payload", {})
+                        if isinstance(sub_payload, dict):
+                            for sub_sec in sub_payload.get("sections", []):
+                                for sub_item in sub_sec.get("data", []):
+                                    # Si un élément n'est pas un dict, on lève l'alerte avec le JSON complet
+                                    if not isinstance(sub_item, dict):
+                                        raise TypeError(
+                                            f"TROUVÉ ! Un sub_item n'est pas un dict mais un {type(sub_item)}. Valeur : {sub_item}")
+    except TypeError as err:
+        # On lève une exception contenant tout le JSON brut pour qu'il remonte dans ton API Flask
+        raise ValueError(
+            f"--- JSON BRUT DE LA TRANSACTION FAUTIVE ---\n{json.dumps(data, indent=2, ensure_ascii=False)}\n--------------------------------------------\nErreur d'origine: {err}")
+    # ------------------------------------------------------------------------------------------
+
+    start_index = response.find("{")
+    end_index = response.rfind("}")
+    data = json.loads(response[start_index: end_index + 1] if start_index != -1 else "{}")
+
     details = {"isin": None, "synthèse": {}}
 
     for section in data.get("sections", []):
