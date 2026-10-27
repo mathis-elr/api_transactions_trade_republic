@@ -124,50 +124,61 @@ async def fetch_transaction_details(websocket, transaction_id, token, message_id
     end_index = response.rfind("}")
     data = json.loads(response[start_index: end_index + 1] if start_index != -1 else "{}")
 
-    # --- AJOUT TEMPORAIRE : On cherche si cette transaction contient le sub_item qui plante ---
-    try:
-        for section in data.get("sections", []):
-            if section.get("title") == "Synthèse":
-                for item in section.get("data", []):
-                    if item.get("title") == "Transaction" and "action" in item.get("detail", {}):
-                        sub_payload = item["detail"]["action"].get("payload", {})
-                        if isinstance(sub_payload, dict):
-                            for sub_sec in sub_payload.get("sections", []):
-                                for sub_item in sub_sec.get("data", []):
-                                    # Si un élément n'est pas un dict, on lève l'alerte avec le JSON complet
-                                    if not isinstance(sub_item, dict):
-                                        raise TypeError(
-                                            f"TROUVÉ ! Un sub_item n'est pas un dict mais un {type(sub_item)}. Valeur : {sub_item}")
-    except TypeError as err:
-        # On lève une exception contenant tout le JSON brut pour qu'il remonte dans ton API Flask
-        raise ValueError(
-            f"--- JSON BRUT DE LA TRANSACTION FAUTIVE ---\n{json.dumps(data, indent=2, ensure_ascii=False)}\n--------------------------------------------\nErreur d'origine: {err}")
-    # ------------------------------------------------------------------------------------------
-
-    start_index = response.find("{")
-    end_index = response.rfind("}")
-    data = json.loads(response[start_index: end_index + 1] if start_index != -1 else "{}")
-
     details = {"isin": None, "synthèse": {}}
 
+    if not isinstance(data, dict):
+        return details, message_id
+
     for section in data.get("sections", []):
+        if not isinstance(section, dict):
+            continue
+
         if section.get("type") == "header" and "action" in section:
-            details["isin"] = section["action"].get("payload")
+            action_sec = section.get("action")
+            if isinstance(action_sec, dict):
+                details["isin"] = action_sec.get("payload")
 
         if section.get("title") == "Synthèse":
             for item in section.get("data", []):
+                if not isinstance(item, dict):
+                    continue
+
                 h = item.get("title")
-                t = item.get("detail", {}).get("text")
+                detail_block = item.get("detail")
+                t = detail_block.get("text") if isinstance(detail_block, dict) else None
+
                 if h and t:
                     details["synthèse"][h] = t
-                    if h == "Transaction" and "action" in item.get("detail", {}):
-                        sub_payload = item["detail"]["action"].get("payload", {})
-                        for sub_sec in sub_payload.get("sections", []):
-                            for sub_item in sub_sec.get("data", []):
-                                sub_h = sub_item.get("title")
-                                sub_t = sub_item.get("detail", {}).get("text")
-                                if sub_h and sub_t:
-                                    details["synthèse"][sub_h] = sub_t
+
+                    if h == "Transaction" and isinstance(detail_block, dict) and "action" in detail_block:
+                        sub_action = detail_block.get("action")
+                        if isinstance(sub_action, dict):
+                            sub_payload = sub_action.get("payload", {})
+
+                            if isinstance(sub_payload, dict):
+                                for sub_sec in sub_payload.get("sections", []):
+                                    if not isinstance(sub_sec, dict):
+                                        continue
+
+                                    sub_data = sub_sec.get("data", [])
+
+                                    # Si Trade Republic renvoie un dictionnaire unique (ex: {"status": "executed"}), on l'ignore
+                                    if isinstance(sub_data, dict):
+                                        continue
+
+                                    # Si c'est bien une liste, on parcourt les sous-éléments
+                                    if isinstance(sub_data, list):
+                                        for sub_item in sub_data:
+                                            if not isinstance(sub_item, dict):
+                                                continue
+                                            sub_h = sub_item.get("title")
+                                            sub_sub_detail = sub_item.get("detail")
+                                            sub_t = sub_sub_detail.get("text") if isinstance(sub_sub_detail,
+                                                                                             dict) else None
+
+                                            if sub_h and sub_t:
+                                                details["synthèse"][sub_h] = sub_t
+
     return details, message_id
 
 async def fetch_all_transactions(token, extract_details, dernier_id_enregistre=None):

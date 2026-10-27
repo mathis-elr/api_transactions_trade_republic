@@ -158,22 +158,8 @@ def get_data():
         return jsonify(all_data)
 
     except Exception as e:
-        import traceback
-        # On récupère la trace complète (fichier, ligne, type d'erreur)
-        error_trace = traceback.format_exc()
-
-        # On logue proprement dans Flask et on renvoie tout à l'API
-        print(f"❌ Erreur critique:\n{error_trace}")
-
-        return jsonify({
-            "message": f"Erreur : {str(e)}",
-            "type": type(e).__name__,
-            "traceback": error_trace
-        }), 500
-
-    #except Exception as e:
-        #print(f"Erreur lors de la récupération des transactions : {str(e)}")
-        #return jsonify({"message": f"Erreur lors de la récupération des transactions : {str(e)}"}), 500
+        print(f"Erreur lors de la récupération des transactions : {str(e)}")
+        return jsonify({"message": f"Erreur lors de la récupération des transactions : {str(e)}"}), 500
 
 
 if __name__ == '__main__':
